@@ -1,0 +1,19 @@
+# Core data handling
+pandas>=2.1
+pyarrow>=14.0
+
+# Geospatial vector and raster processing
+geopandas>=0.14
+shapely>=2.0
+pyogrio>=0.7
+fiona>=1.9
+rasterio>=1.3
+
+# HTTP requests and APIs
+requests>=2.31
+dataretrieval>=1.0
+
+# Environment variables and notebook use
+python-dotenv>=1.0
+jupyterlab>=4.0
+ipykernel>=6.0

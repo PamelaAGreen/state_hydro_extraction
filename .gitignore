@@ -1,0 +1,9 @@
+.DS_Store
+# Ignore all data contents, except folder placeholders
+data/**/*
+!data/**/.gitkeep
+
+src/__pycache__/
+__pycache__/
+.ipynb_checkpoints/
+.env
