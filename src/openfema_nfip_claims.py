@@ -1,0 +1,136 @@
+"""Extract OpenFEMA NFIP redacted claims for a selected state and date range."""
+from __future__ import annotations
+
+import time
+from pathlib import Path
+
+import pandas as pd
+import requests
+
+from config import (
+    DEFAULT_STATE_ABBR,
+    DEFAULT_YEAR_END,
+    DEFAULT_YEAR_START,
+    RAW_DIR,
+)
+
+HEADERS = {"User-Agent": "openfema-nfip-claims-extractor/1.0 (research use)"}
+
+
+def _get(url: str, *, timeout: int = 90, attempts: int = 3, **kwargs) -> requests.Response:
+    """Request OpenFEMA with retries."""
+    error = None
+    for attempt in range(attempts):
+        try:
+            response = requests.get(url, headers=HEADERS, timeout=timeout, **kwargs)
+            response.raise_for_status()
+            return response
+        except requests.RequestException as exc:
+            error = exc
+            if attempt < attempts - 1:
+                time.sleep(3 * (attempt + 1))
+    raise RuntimeError(f"OpenFEMA request failed: {url}. Last error: {error}")
+
+
+def extract_nfip_claims(
+    state_abbr: str = DEFAULT_STATE_ABBR,
+    year_start: int = DEFAULT_YEAR_START,
+    year_end: int = DEFAULT_YEAR_END,
+    output_dir: str | Path = RAW_DIR,
+    *,
+    force: bool = False,
+) -> pd.DataFrame:
+    """Return NFIP redacted claims for a state over an inclusive date range.
+
+    Parameters
+    ----------
+    state_abbr
+        Two-letter postal abbreviation, such as ``RI``.
+    year_start, year_end
+        Inclusive years used to filter ``dateOfLoss`` on the OpenFEMA server.
+    output_dir
+        Folder where the Parquet result will be saved.
+    force
+        If True, refresh an existing cached output.
+
+    Notes
+    -----
+    The OpenFEMA endpoint is paginated. This function requests batches of
+    1,000 records until no additional records remain.
+    """
+    if year_end < year_start:
+        raise ValueError("year_end must be greater than or equal to year_start.")
+
+    state_abbr = state_abbr.upper()
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    outpath = output_dir / f"nfip_claims_{state_abbr}_{year_start}_{year_end}.parquet"
+
+    if outpath.exists() and not force:
+        return pd.read_parquet(outpath)
+
+    base_url = "https://www.fema.gov/api/open/v2/FimaNfipClaims"
+    date_filter = (
+        f"state eq '{state_abbr}' "
+        f"and dateOfLoss ge {year_start}-01-01 "
+        f"and dateOfLoss le {year_end}-12-31"
+    )
+
+    page_size = 1000
+    offset = 0
+    frames: list[pd.DataFrame] = []
+
+    while True:
+        print(f"Fetching NFIP claims: offset {offset:,}")
+        params = {
+            "$filter": date_filter,
+            "$top": page_size,
+            "$skip": offset,
+            "$format": "json",
+        }
+        response = _get(base_url, params=params)
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise RuntimeError(
+                f"OpenFEMA returned non-JSON: {response.text[:400]}"
+            ) from exc
+
+        records = payload.get("FimaNfipClaims", [])
+        if not records:
+            break
+
+        frames.append(pd.DataFrame(records))
+        if len(records) < page_size:
+            break
+
+        offset += page_size
+        time.sleep(0.25)
+
+    claims = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    claims.to_parquet(outpath, index=False)
+    return claims
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Extract OpenFEMA NFIP redacted claims for a state and period."
+    )
+    parser.add_argument("--state-abbr", default=DEFAULT_STATE_ABBR)
+    parser.add_argument("--year-start", type=int, default=DEFAULT_YEAR_START)
+    parser.add_argument("--year-end", type=int, default=DEFAULT_YEAR_END)
+    parser.add_argument("--output-dir", default=str(RAW_DIR))
+    parser.add_argument("--force", action="store_true")
+    args = parser.parse_args()
+
+    result = extract_nfip_claims(
+        state_abbr=args.state_abbr,
+        year_start=args.year_start,
+        year_end=args.year_end,
+        output_dir=args.output_dir,
+        force=args.force,
+    )
+    print(f"Saved {len(result):,} NFIP redacted-claim records.")
