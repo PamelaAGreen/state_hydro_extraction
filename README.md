@@ -19,6 +19,10 @@ Land-cover year: 2024
 
 Outputs are written to `data/raw/` by default. Most extractors reuse an existing output file unless `--force` is supplied.
 
+## Why I built this
+
+I use many of these datasets in my exploration and model building. I wanted to have a library of code snippets I could pull from to download the latest data without having to re-invent the wheel or go searching through older code or  repos.
+
 ## Included sources
 
 ### `usgs_stream_gauges.py`
