@@ -193,6 +193,8 @@ python src/census_county_subdivisions.py 25 MA
 
 Combines Census TIGER/Line tract polygons with 2020 Decennial Census DHC table H2 values for total, urban, and rural housing units. The output includes `pct_urban` and `pct_rural`.
 
+** NOTE: You will need a Census API to run this code; see directions below Installation **
+
 **Output:** `census_tract_urban_rural_<STATE>.parquet`
 
 **Headless CLI commands**
