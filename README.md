@@ -356,3 +356,7 @@ Use `--force` deliberately because source datasets can be large, APIs can rate-l
 These scripts retrieve public data from their respective agencies. Users are responsible for reviewing each provider’s documentation, license, update schedule, attribute definitions, and appropriate-use guidance before distributing or interpreting the data.
 
 The repository stores extraction code only. Downloaded files in `data/raw/`, temporary archive contents, and local credentials should remain outside version control.
+
+## License
+
+This prototype is licensed under the MIT License so that others can freely use, adapt, and integrate it into their own workflows. As a courtesy, please avoid reselling the repository as-is without meaningful changes, and always retain clear attribution to the original author in derivative work. Contributions and improvements are welcome.
