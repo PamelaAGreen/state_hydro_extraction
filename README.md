@@ -275,7 +275,10 @@ The extractors use packages including `geopandas`, `pandas`, `requests`, `pyarro
 
 ## Census API key
 
-The tract urban/rural extractor requires a Census API key. Store it in a project-root `.env` file:
+The tract urban/rural extractor requires a Census API key.  You can acquire
+an API key from [Request a U.S. Census Data API Key](https://api.census.gov/data/key_signup.html)
+
+You will need to store the key in a project-root `.env` file in the following format:
 
 ```text
 CENSUS_API_KEY=your_census_api_key_here
