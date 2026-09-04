@@ -259,15 +259,6 @@ project-root/
 Create and activate a Python environment, then install the project dependencies.
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-On Windows PowerShell:
-
-```powershell
-.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
