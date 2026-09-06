@@ -1,4 +1,62 @@
-"""Extract Census TIGER/Line county boundaries for a selected U.S. state."""
+"""
+src/census_counties.py
+=======================
+Extracts Census TIGER/Line county boundary polygons for one U.S. state.
+
+DATA SOURCE: Census Bureau TIGER/Line Shapefiles, COUNTY layer.
+- Landing page / documentation:
+  https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.html
+- Direct download pattern used by this script (one national ZIP per
+  TIGER/Line vintage year, not split by state):
+  https://www2.census.gov/geo/tiger/TIGER{year}/COUNTY/tl_{year}_us_county.zip
+  e.g. https://www2.census.gov/geo/tiger/TIGER2023/COUNTY/tl_2023_us_county.zip
+
+FORMAT: The ZIP contains a single national county shapefile (.shp/.shx/
+.dbf/.prj) covering all 50 states, DC, and territories -- there is no
+per-state download option at the source. This script downloads the full
+national ZIP, extracts it to a temporary folder, loads the shapefile with
+geopandas, and THEN filters rows down to the selected state using the
+two-digit STATEFP field (e.g. "44" for Rhode Island). No county-by-county
+fetching or stitching is required for this particular dataset, since the
+source file already contains every county nationwide in one shapefile.
+The temporary extracted shapefile is not deleted automatically; it
+accumulates under data/raw/_tmp_counties_{tiger_year}/ across repeated
+runs using the same tiger_year, which is harmless but can be cleaned up
+manually if disk space matters.
+
+SPECIAL CONSIDERATIONS:
+- STATEFP is a two-digit, zero-padded string (e.g. "06" for California,
+  not "6"). state_fips is coerced with str(state_fips).zfill(2) before
+  filtering, so passing either 44 (int) or "44" (str) works correctly.
+- Source geometry is NAD83 (EPSG:4269, TIGER/Line's native CRS); this
+  script reprojects to EPSG:4326 before saving.
+- A combined 5-digit county FIPS code is NOT provided as a single field
+  by TIGER/Line -- if one is needed downstream, it must be built by
+  concatenating this file's STATEFP + COUNTYFP columns.
+- No API key or authentication is required; this is a direct,
+  unauthenticated file download from the Census Bureau's public
+  FTP-style mirror.
+
+OUTPUT: data/raw/counties_{STATE_ABBR}.parquet -- GeoParquet, EPSG:4326,
+one row per county polygon in the selected state, with the full set of
+original TIGER/Line attribute columns (STATEFP, COUNTYFP, NAME, GEOID,
+ALAND, AWATER, geometry, etc.) preserved.
+
+SINGLE ENTRY POINT: extract_county_boundaries() is the only function
+meant to be called from outside this module.
+
+USAGE:
+Interactive:
+    from census_counties import extract_county_boundaries
+    counties_gdf = extract_county_boundaries()
+
+Headless CLI:
+    Default:
+        python src/census_counties.py
+    Specify state:
+        python src/census_counties.py --state-fips 25 --state-abbr MA
+"""
+
 from __future__ import annotations
 
 import io

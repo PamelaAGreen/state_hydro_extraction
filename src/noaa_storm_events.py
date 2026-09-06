@@ -1,11 +1,97 @@
-"""Extract NOAA flood-related Storm Events and resolve events to county geography.
-
-For NOAA records with CZ_TYPE == "C", CZ_FIPS is a county code.  For records
-with CZ_TYPE == "Z", CZ_FIPS is an NWS forecast-zone code.  Zone records are
-resolved through NOAA/NWS's current zone-to-county correlation file; an event
-in a zone spanning multiple counties produces one county-attributed row per
-matched county.
 """
+src/noaa_storm_events.py
+=========================
+Extracts NOAA Storm Events Database records for flood-related event
+types in one state and resolves each event to a five-digit county FIPS
+code.
+
+DATA SOURCES:
+1. NOAA/NCEI Storm Events Database (event records):
+   - Documentation:
+     https://www.ncdc.noaa.gov/stormevents/
+   - Direct download pattern used by this script (one gzipped CSV per
+     calendar year, covering the entire United States, not just one
+     state):
+     https://www.ncei.noaa.gov/pub/data/swdi/stormevents/csvfiles/StormEvents_details-ftp_v1.0_d{year}_c{8-digit-date}.csv.gz
+   - This script first fetches the directory listing at that base URL
+     and searches it with a regular expression to find the current
+     filename for each requested year, since the trailing
+     c{8-digit-date} portion (a file-creation/version stamp) is not
+     predictable in advance and changes as NOAA reprocesses data.
+2. NOAA/NWS public forecast zone-to-county correlation file (reference
+   table, used only to resolve zone-based events to counties):
+   - Landing page:
+     https://www.weather.gov/gis/ZoneCounty
+   - This script scrapes that page's HTML for links matching the
+     pattern bp{2 digits}{2 letters}{2 digits}.dbx, picks the most
+     recent one by decoding the embedded date in the filename, and
+     downloads it from:
+     https://www.weather.gov/source/gis/Shapefiles/County/{filename}.dbx
+
+FORMAT AND SPECIAL CONSIDERATIONS -- ZONE VS. COUNTY RESOLUTION: NOAA
+Storm Events records use a CZ_TYPE field that is either "C" (county) or
+"Z" (NWS forecast zone), and a CZ_FIPS field whose meaning depends on
+CZ_TYPE:
+- CZ_TYPE == "C": CZ_FIPS is already a three-digit county code; this
+  script pads it to three digits and prepends the two-digit state FIPS
+  to build a five-digit county_fips directly (geo_resolution =
+  "county_direct").
+- CZ_TYPE == "Z": CZ_FIPS is an NWS forecast-zone code.
+  This script downloads the NWS zone-to-county correlation file
+  described above, joins zone events to it on the zone code, and
+  attaches the corresponding county_fips (geo_resolution =
+  "zone_to_county_join"). Because a single NWS zone can span multiple
+  counties, a zone-based event can expand into more than one output
+  row -- one per matched county -- and n_counties_for_zone records how
+  many counties that particular zone maps to, so downstream analysis
+  can identify and, if desired, weight or de-duplicate these
+  one-to-many expansions.
+
+OTHER SPECIAL CONSIDERATIONS:
+- This script filters national-scale yearly files down to one state
+  using the STATE column (matched against state_name, e.g. "RHODE
+  ISLAND") -- state_name must match NOAA's state-name spelling/casing 
+  (case-insensitive comparison is applied).
+- Only four flood-related event types are retained:
+  Flood, Flash Flood, Coastal Flood, and Lakeshore Flood
+  (FLOOD_EVENT_TYPES). Other NOAA event types (e.g. Thunderstorm Wind,
+  Winter Storm) are not included.
+- If NOAA's directory listing does not contain a details file for a
+  requested year, this script prints a warning and continues rather
+  than raising, so a run can still succeed with partial year coverage.
+- Supplementary point/line geometry is derived from each event's
+  BEGIN_LAT/BEGIN_LON and END_LAT/END_LON fields where present (a
+  LineString when both differing begin/end coordinates exist, otherwise
+  a single Point); has_point_or_line_geometry flags whether an event
+  received any such geometry at all, since many Storm Events records
+  have no coordinates.
+- The NWS zone-to-county correlation file is cached locally
+  (noaa_zone_county_correlation.parquet) and reused across runs/states
+  unless force=True, since it changes infrequently relative to Storm
+  Events data itself.
+
+OUTPUT: data/raw/noaa_storm_events_{STATE_ABBR}.parquet -- GeoParquet,
+EPSG:4326, one row per county-attributed flood event, with the original
+NOAA Storm Events columns plus county_fips, n_counties_for_zone,
+geo_resolution, geometry, and has_point_or_line_geometry.
+
+SINGLE ENTRY POINT: extract_noaa_storm_events() is the only function
+meant to be called from outside this module. (extract_zone_county_correlation()
+is also usable on its own if only the raw NWS correlation table is
+needed.)
+
+USAGE:
+Interactive:
+    from noaa_storm_events import extract_noaa_storm_events
+    storm_events_gdf = extract_noaa_storm_events()
+
+Headless CLI:
+    Default:
+        python src/noaa_storm_events.py
+    Specify state:
+        python src/noaa_storm_events.py --state-fips 25 --state-abbr MA --state-name Massachusetts
+"""
+
 from __future__ import annotations
 
 import io

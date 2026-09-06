@@ -1,8 +1,81 @@
-"""Extract FEMA MSC effective NFHL flood-hazard polygons for one state.
-
-Call extract_nfhl_flood_zones_msc() with no arguments for config.py defaults,
-or pass state_fips, state_abbr, and output_dir from a notebook.
 """
+src/extract_nfhl_msc.py
+========================
+Extracts FEMA's current effective National Flood Hazard Layer (NFHL)
+flood-hazard-area polygons for one state, via the FEMA Map Service
+Center (MSC) portal's advanceSearch/downloadProduct flow.
+
+DATA SOURCE: FEMA Map Service Center (MSC), NFHL_STATE_DATA product.
+- Portal (manual browsing equivalent of what this script automates):
+  https://msc.fema.gov/portal/advanceSearch
+- This script does not use a single fixed download URL. Instead, it
+  calls three MSC endpoints in sequence to discover the CURRENT
+  statewide NFHL package name, then downloads it:
+  1. GET  https://msc.fema.gov/portal/advanceSearch?getCommunity={county_fips}&state={state_fips}
+  2. POST https://msc.fema.gov/portal/advanceSearch  (form-encoded search)
+  3. GET  https://msc.fema.gov/portal/downloadProduct?productTypeID=NFHL&productSubTypeID=NFHL_STATE_DATA&productID={product_NAME}
+
+FORMAT: FEMA does not publish a fixed, predictable URL for a state's
+current NFHL package -- the exact product identifier (e.g.
+"NFHL_44_20260622") includes a date suffix and changes roughly every two
+weeks as FEMA republishes. This script therefore looks the current
+product name up fresh on every run. The downloaded product is a ZIP 
+containing a file geodatabase (.gdb), from which this script reads 
+the S_FLD_HAZ_AR (flood-hazard area polygon) feature class specifically 
+-- other layers in the same geodatabase (e.g. base flood elevations, 
+cross-sections) are not extracted by this script.
+
+SPECIAL CONSIDERATIONS:
+- FEMA's search form requires a county FIPS code and a FEMA "community"
+  ID as required form fields, even though the result returned --
+  NFHL_STATE_DATA -- is the same statewide package regardless of which
+  specific county/community was used to reach it. This script obtains
+  a county FIPS code by calling extract_county_boundaries() from
+  census_counties.py and using the first county returned. Running this 
+  script therefore requires census_counties.py to be importable and working, 
+  since a valid county FIPS code is a runtime prerequisite for reaching FEMA's
+  statewide product.
+- The FEMA community ID is likewise obtained by calling MSC's
+  getCommunity endpoint for that same arbitrarily-chosen county and
+  using the first community returned.
+- Reading the downloaded file geodatabase requires Fiona (with the
+  OpenFileGDB driver) to be installed; this script raises an
+  ImportError with an explicit `pip install fiona` instruction if missing.
+- If FEMA does not publish a combined NFHL_STATE_DATA product for a
+  given state (some states/territories may only have
+  NFHL_COUNTY_DATA), this script raises an error.
+- If DFIRM_ID is present in the flood-hazard layer's attributes, a
+  county_fips column is derived by taking its first five characters;
+  this is not guaranteed to be present for every FEMA product vintage.
+- Output CRS is whatever the source geodatabase itself declares (FEMA
+  NFHL data is typically EPSG:4269 / NAD83).
+- The per-run temporary extraction folder
+  (data/raw/tmp_nfhl_msc_{STATE_ABBR}/) is removed automatically after
+  each run, including when an error occurs.
+- No API key is required, but this script depends on FEMA's MSC portal
+  responding in the same JSON/form shape; a change to FEMA's portal 
+  implementation could break the community-ID or product-lookup steps.
+
+OUTPUT: data/raw/nfhl_flood_zones_{STATE_ABBR}_MSC.parquet -- one row
+per flood-hazard-area polygon, with FEMA's original S_FLD_HAZ_AR
+attribute columns (FLDZONE, ZONESUBTY, SFHATF, DFIRM_ID, etc.) plus a
+derived county_fips column when DFIRM_ID is available.
+
+SINGLE ENTRY POINT: extract_nfhl_flood_zones_msc() is the only function
+meant to be called from outside this module.
+
+USAGE:
+Interactive:
+    from extract_nfhl_msc import extract_nfhl_flood_zones_msc
+    nfhl_gdf = extract_nfhl_flood_zones_msc()
+
+Headless CLI:
+    Default:
+        python src/extract_nfhl_msc.py
+    Specify state:
+        python src/extract_nfhl_msc.py --state-fips 25 --state-abbr MA
+"""
+
 from __future__ import annotations
 import argparse
 import io

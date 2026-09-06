@@ -1,9 +1,59 @@
-"""Extract USGS stream sites with discharge or gauge-height record periods.
-To run headless, use the command line:
-gauges_gdf = extract_usgs_stream_gauges() - no arguments needed for RI, 
-or specify a state abbreviation:
-python usgs_stream_gauges.py MA --output-dir data/raw  
 """
+src/usgs_stream_gauges.py
+==========================
+Extracts USGS stream-gauge sites for one state that have a discharge or
+gauge-height measurement history.
+
+DATA SOURCE: USGS National Water Information System (NWIS), accessed via
+the dataretrieval Python package (not a direct file download or REST
+call written by this script).
+- Package documentation:
+  https://doi-usgs.github.io/dataretrieval-python/
+- Underlying NWIS site-service documentation:
+  https://waterservices.usgs.gov/
+
+FORMAT: This script does not construct its own download URLs. It calls
+dataretrieval.nwis.get_info() twice:
+1. Once with siteType="ST" to get every stream site in the state,
+   regardless of what it measures or how long its record is.
+2. Once more with siteType="ST" and seriesCatalogOutput=True to get each
+   site's full parameter-and-date-range catalog, filtered to two
+   parameter codes: 00060 (discharge) and 00065 (gauge height).
+   Per-site begin_date/end_date are aggregated from that filtered
+   catalog and merged back onto the full site list. Sites with no
+   matching begin_date are dropped.
+
+SPECIAL CONSIDERATIONS:
+- Requires the dataretrieval package. If missing, this raises an
+  ImportError with an explicit "pip install dataretrieval" instruction.
+- is_active_now is a derived heuristic (end_date within the last 90
+  days of today).
+- 00060 and 00065 are USGS parameter codes for discharge (cfs) and
+  gauge height (feet); other parameter codes are ignored.
+- Point geometry is built directly from dec_long_va/dec_lat_va; no
+  reprojection is applied beyond declaring CRS EPSG:4326.
+- No API key or authentication is required.
+
+OUTPUT: data/raw/usgs_stream_gauges_{STATE_ABBR}.parquet -- GeoParquet,
+EPSG:4326, one row per stream site with a discharge or gauge-height
+history, including site_no, station_nm, site_tp_cd, huc_cd, begin_date,
+end_date, is_active_now, and geometry.
+
+SINGLE ENTRY POINT: extract_usgs_stream_gauges() is the only function
+meant to be called from outside this module.
+
+USAGE:
+Interactive:
+    from usgs_stream_gauges import extract_usgs_stream_gauges
+    gauges_gdf = extract_usgs_stream_gauges()
+
+Headless CLI:
+    Default:
+        python src/usgs_stream_gauges.py
+    Specify state:
+        python src/usgs_stream_gauges.py --state-abbr MA
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -100,7 +150,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Extract USGS stream gauges with discharge or gauge-height record history."
     )
-    parser.add_argument("state_abbr", help="Two-letter state abbreviation, e.g. RI")
+    parser.add_argument("--state-abbr", default=DEFAULT_STATE_ABBR, help="Two-letter state abbreviation, e.g. RI")
     parser.add_argument("--output-dir", default="data/raw")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()

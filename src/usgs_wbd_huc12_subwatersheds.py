@@ -1,11 +1,66 @@
-"""Extract USGS Watershed Boundary Dataset 12-digit hydrologic units by state.
-
-The extractor queries the USGS National Map WBD ArcGIS REST service's
-12-digit HU (Subwatershed) layer. It selects records by the service's
-``States`` attribute and retains each original, full subwatershed geometry.
-No clipping is performed, so subwatersheds that cross the selected state
-boundary remain complete polygons.
 """
+src/usgs_wbd_huc12_subwatersheds.py
+=====================================
+Extracts USGS Watershed Boundary Dataset (WBD) 12-digit hydrologic
+units (HUC12 subwatersheds) that include one U.S. state, keeping each
+subwatershed's full, un-clipped geometry.
+
+DATA SOURCE: USGS National Map WBD ArcGIS REST service, 12-digit HU
+(Subwatershed) layer.
+- Service documentation / map service root:
+  https://hydro.nationalmap.gov/arcgis/rest/services/wbd/MapServer
+- Specific query endpoint used by this script (layer 6, the HUC12
+  Subwatershed layer):
+  https://hydro.nationalmap.gov/arcgis/rest/services/wbd/MapServer/6/query
+
+FORMAT: This is a paginated ArcGIS REST query. Records are selected using 
+the service's own States attribute via a SQL-style WHERE clause, and returned 
+as GeoJSON features. Because a subwatershed's States field can hold more than 
+one state (e.g. "MA,RI" for a HUC12 straddling both), the WHERE clause
+matches four patterns: an exact single-state match, or the requested
+abbreviation appearing at the start, middle, or end of a comma-
+separated list. This script requests results in batches
+(resultRecordCount, default 1,000) and keeps requesting subsequent
+pages (advancing resultOffset) until a page returns fewer features than
+the batch size.
+
+SPECIAL CONSIDERATIONS:
+- No clipping is performed. A HUC12 that spans this state and a
+  neighboring state is returned as its complete, original polygon --
+  including the portion outside the requested state.
+- state_abbr is validated strictly: it must be exactly two alphabetic
+  characters after stripping and upper-casing, or a ValueError flag is
+  raised.
+- If the WBD service returns zero features for the requested state
+  abbreviation, this raises a flag.
+- The service's own maximum page size may be lower than the requested
+  batch_size; this script relies on comparing the number of features
+  actually returned per page against batch_size to decide whether more
+  pages remain.
+- A short delay (time.sleep(0.2)) is added between pages to avoid
+  querying the ArcGIS REST service too rapidly.
+- No API key or authentication is required.
+
+OUTPUT: data/raw/usgs_wbd_huc12_subwatersheds_{STATE_ABBR}.parquet --
+GeoParquet, EPSG:4326, one row per full HUC12 subwatershed polygon that
+includes the requested state, with the WBD service's original
+attribute fields preserved.
+
+SINGLE ENTRY POINT: extract_wbd_huc12_subwatersheds() is the only
+function meant to be called from outside this module.
+
+USAGE:
+Interactive:
+    from usgs_wbd_huc12_subwatersheds import extract_wbd_huc12_subwatersheds
+    huc12_gdf = extract_wbd_huc12_subwatersheds()
+
+Headless CLI:
+    Default:
+        python src/usgs_wbd_huc12_subwatersheds.py
+    Specify state:
+        python src/usgs_wbd_huc12_subwatersheds.py --state-abbr MA
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

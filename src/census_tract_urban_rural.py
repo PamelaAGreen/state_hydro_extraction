@@ -1,4 +1,87 @@
-"""Extract 2020 Census DHC H2 tract urban/rural housing-unit shares."""
+"""
+src/census_tract_urban_rural.py
+================================
+Extracts Census tract boundaries for one U.S. state and joins them to
+2020 Census Demographic and Housing Characteristics (DHC) urban/rural
+housing-unit counts, producing a per-tract percent-urban and
+percent-rural share.
+
+DATA SOURCES:
+1. Census Bureau TIGER/Line Shapefiles, TRACT layer (geometry only):
+   - Landing page:
+     https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.html
+   - Direct download pattern (one ZIP per state, per TIGER/Line vintage
+     year):
+     https://www2.census.gov/geo/tiger/TIGER{year}/TRACT/tl_{year}_{state_fips}_tract.zip
+     e.g. https://www2.census.gov/geo/tiger/TIGER2023/TRACT/tl_2023_44_tract.zip
+2. Census Bureau 2020 Decennial Census, Demographic and Housing
+   Characteristics File (DHC), table H2 (attribute data, via API):
+   - API documentation / variable list:
+     https://www.census.gov/data/developers/data-sets/decennial-census.html
+   - Base endpoint used by this script:
+     https://api.census.gov/data/2020/dec/dhc
+   - Variables pulled: H2_001N (total housing units), H2_002N (housing
+     units in urban areas), H2_003N (housing units in rural areas).
+
+FORMAT: Geometry and attributes come from two different sources and are
+joined locally by this script -- they are not available pre-joined
+anywhere. Tract geometry is one ZIP per state (see URL pattern above).
+Attribute data comes from the Census API, which does NOT support
+requesting all of a state's tracts in a single call; it requires an
+explicit county parameter per request. This script derives the list of
+counties present in the state's own tract shapefile (via the COUNTYFP
+column) and then loops over that list, issuing one API call per county,
+concatenating the results, and joining them back to the tract geometry
+on GEOID. This "get geometry first, then loop counties for attributes"
+pattern is what makes the extractor work for any state without the
+county list needing to be hardcoded or supplied separately.
+
+SPECIAL CONSIDERATIONS:
+- Requires a Census API key. Pass one explicitly via census_api_key=, or
+  set it as the CENSUS_API_KEY environment variable (e.g. in a .env
+  file loaded before this module runs). Request a free key at
+  https://api.census.gov/data/key_signup.html if one is not already
+  available. Without a key, the function raises immediately rather than
+  attempting an unauthenticated request.
+- state_fips is coerced with str(state_fips).zfill(2), so passing either
+  44 (int) or "44" (str) produces the correct two-digit code used in
+  both the TIGER/Line URL and the Census API "in=" clause.
+- The API is queried once per county (not once per state), with a short
+  delay between calls (time.sleep(0.25)) to avoid hammering the
+  endpoint; a state with many counties will make that many sequential
+  API requests.
+- H2_001N/H2_002N/H2_003N are coerced to numeric with errors="coerce",
+  so any unexpected non-numeric API response for a tract becomes NaN
+  rather than raising.
+- pct_urban and pct_rural divide by total_units with 0 replaced by
+  pd.NA first, avoiding a division-by-zero result for tracts with no
+  housing units.
+- Source tract geometry is NAD83 (EPSG:4269, TIGER/Line's native CRS);
+  this script reprojects to EPSG:4326 before saving.
+- The temporary per-run extraction folder (data/raw/_tmp_tracts_
+  {state_fips}_{tiger_year}/) is removed automatically after each run,
+  including when an error occurs, so no manual cleanup is needed.
+
+OUTPUT: data/raw/census_tract_urban_rural_{STATE_ABBR}.parquet --
+GeoParquet, EPSG:4326, one row per Census tract, with geoid, county_fips,
+total_units, urban_units, rural_units, pct_urban, pct_rural, and
+geometry.
+
+SINGLE ENTRY POINT: extract_tract_urban_rural() is the only function
+meant to be called from outside this module.
+
+USAGE:
+Interactive:
+    from census_tract_urban_rural import extract_tract_urban_rural
+    tracts_gdf = extract_tract_urban_rural()
+
+Headless CLI:
+    Default:
+        python src/census_tract_urban_rural.py
+    Specify state:
+        python src/census_tract_urban_rural.py --state-fips 25 --state-abbr MA
+"""
+
 from __future__ import annotations
 
 import io

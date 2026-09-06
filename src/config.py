@@ -1,9 +1,58 @@
-"""Project-level default configuration for state-based GIS extractors.
-
-Individual extractor functions should accept explicit argument values. Import
-these defaults only for optional function defaults or headless execution, so a
-notebook can always override them for a particular run.
 """
+src/config.py
+==============
+Project-level default configuration for state-based GIS extractors:
+default project directories, default study-area state, default year
+range, and a default HTTP User-Agent identity.
+
+WHAT IT PROVIDES:
+- Project directory paths (PROJECT_ROOT, SRC_DIR, DATA_DIR, RAW_DIR), computed relative to this file's own location on disk
+  (assumes this file lives at PROJECT_ROOT/src/config.py). RAW_DIR and
+  is created automatically on import if it does not
+  already exist.
+- Default study-area identifiers: DEFAULT_STATE_FIPS ("44"),
+  DEFAULT_STATE_ABBR ("RI"), DEFAULT_STATE_NAME ("Rhode Island"). These
+  three values describe the same state and are intended to be changed
+  together.
+- Default inclusive year range for time-series extractors
+  (DEFAULT_YEAR_START = 2010, DEFAULT_YEAR_END = 2024) and a default
+  land-cover vintage year (DEFAULT_LAND_COVER_YEAR = 2024).
+- DEFAULT_TIGER_YEAR (2023), the default Census TIGER/Line vintage used
+  by extractors that download Census geometry.
+- DEFAULT_HEADERS, a generic identifying User-Agent string
+  ("state-geospatial-extractors/1.0 (research use)") for extractors that
+  do not need a source-specific header.
+- state_config(state_fips, state_abbr, state_name): Takes any of the
+  three state identifiers (defaulting to the module's own DEFAULT_*
+  values) and returns them together as a normalized dict -- FIPS
+  zero-padded to two digits, abbreviation upper-cased and stripped, name
+  stripped of surrounding whitespace. Useful for passing a single,
+  already-normalized state definition into a notebook workflow or
+  another function.
+
+SPECIAL CONSIDERATIONS:
+- Individual extractor functions are designed to accept explicit
+  argument values; the intent is that these DEFAULT_* values are only
+  used as optional function defaults or for convenience during headless
+  CLI execution, not as hardcoded values baked into extractor logic.
+  Any notebook or script can override them for a specific run by 
+  passing different arguments.
+- To change the project's headless default state (for example, from
+  Rhode Island to another state), update DEFAULT_STATE_FIPS,
+  DEFAULT_STATE_ABBR, and DEFAULT_STATE_NAME together in this one file.
+
+USAGE:
+Interactive or within another script:
+    from config import (
+        DEFAULT_STATE_FIPS, DEFAULT_STATE_ABBR, RAW_DIR, state_config
+    )
+
+    settings = state_config()                       # Rhode Island defaults
+    settings = state_config(25, "MA", "Massachusetts")  # explicit override
+
+This module has no standalone headless CLI usage.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

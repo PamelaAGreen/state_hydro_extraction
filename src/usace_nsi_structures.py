@@ -1,9 +1,68 @@
-"""Extract USACE National Structure Inventory (NSI) structures for one state.
-
-This module depends on ``census_counties.py`` in the same directory. It uses
-that extractor to derive the state's county FIPS codes, then queries the NSI
-API once for each county.
 """
+src/usace_nsi_structures.py
+============================
+Extracts point-level structure records from the USACE National
+Structure Inventory (NSI) for every county in one U.S. state.
+
+DATA SOURCE: USACE National Structure Inventory (NSI) API.
+- Documentation:
+  https://www.hec.usace.army.mil/confluence/nsi
+- API base endpoint used by this script:
+  https://nsi.sec.usace.army.mil/nsiapi/structures
+
+FORMAT: The NSI API does not support requesting an entire state's
+structures in a single call -- it is queried per county, using a
+five-digit county FIPS code passed as the fips parameter (fmt=fc
+requests results as a GeoJSON FeatureCollection). This script obtains
+the full list of county FIPS codes for the requested state by calling
+extract_county_boundaries() from census_counties.py, then loops over
+that list, issuing one NSI API request per county, and concatenating
+all returned structure records into one combined output. Running this
+script requires census_counties.py to be importable and working, 
+since deriving a valid county list is a runtime prerequisite.
+
+SPECIAL CONSIDERATIONS:
+- NSI attribute values such as valstruct (structure value) and valcont
+  (contents value) are MODELED ESTIMATES produced by USACE, not
+  county-assessed values or real market valuations.
+- Coverage and attribute completeness can be lower in rural or heavily
+  wooded areas, where source imagery/data used to build NSI may be
+  sparser.
+- The FEMA flood-zone attribute (firmzone), where present, is checked
+  for its null rate after extraction, and that percentage is printed.
+- Records missing longitude/latitude are dropped before building the
+  output GeoDataFrame (structures.dropna(subset=["longitude",
+  "latitude"])).
+- If the NSI API returns zero structure records across every county in
+  the state, this raises a flag.
+- A short delay (time.sleep(0.25)) is added between each county's
+  request to avoid querying the NSI API too rapidly.
+- No API key or authentication is required.
+- force=True only rebuilds this script's own NSI output; the
+  underlying county-boundary file from census_counties.py is reused
+  from its own cache.
+
+OUTPUT: data/raw/nsi_structures_{STATE_ABBR}.parquet -- GeoParquet,
+EPSG:4326, one row per structure point, with NSI's original attribute
+fields (valstruct, valcont, sqft, found_type, num_story, firmzone,
+ground_elv, etc.) plus county_fips, county_name, longitude, and
+latitude.
+
+SINGLE ENTRY POINT: extract_nsi_structures() is the only function
+meant to be called from outside this module.
+
+USAGE:
+Interactive:
+    from usace_nsi_structures import extract_nsi_structures
+    nsi_gdf = extract_nsi_structures()
+
+Headless CLI:
+    Default:
+        python src/usace_nsi_structures.py
+    Specify state:
+        python src/usace_nsi_structures.py --state-fips 25 --state-abbr MA
+"""
+
 from __future__ import annotations
 
 import time

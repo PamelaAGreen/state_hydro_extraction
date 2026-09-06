@@ -1,4 +1,73 @@
-"""Download and clip Annual NLCD land cover to a selected state."""
+"""
+src/mrlc_land_cover.py
+=======================
+Downloads the official MRLC Annual National Land Cover Database (NLCD)
+CONUS-wide GeoTIFF for one year and clips it to the exact boundary of
+one U.S. state.
+
+DATA SOURCES:
+1. MRLC Annual NLCD Land Cover data bundle (raster, full CONUS extent):
+   - Product page:
+     https://www.mrlc.gov/data
+   - Direct download pattern used by this script (one ZIP per year,
+     covering the entire continental United States, not just one
+     state):
+     https://www.mrlc.gov/downloads/sciweb1/shared/mrlc/data-bundles/Annual_NLCD_LndCov_{year}_CU_C1V2.zip
+     e.g. https://www.mrlc.gov/downloads/sciweb1/shared/mrlc/data-bundles/Annual_NLCD_LndCov_2024_CU_C1V2.zip
+2. Census Bureau TIGER/Line national state boundary file (used only to
+   obtain the clip geometry for the selected state):
+   - Direct download pattern:
+     https://www2.census.gov/geo/tiger/TIGER{tiger_year}/STATE/tl_{tiger_year}_us_state.zip
+
+FORMAT: MRLC does not offer a per-state or bounding-box-only download
+option for this particular product -- each year's archive is a single
+ZIP covering the full continental U.S. at native NLCD resolution
+(~30 m), a very large download. This script downloads the
+full-CONUS ZIP, extracts the one GeoTIFF inside it, downloads the
+national TIGER/Line state boundary file and selects the requested
+state's polygon by STATEFP, reprojects that polygon into the raster's
+CRS, and uses rasterio.mask.mask(..., crop=True) to clip and crop
+the full-CONUS raster down to the state's extent.
+
+SPECIAL CONSIDERATIONS:
+- The full-CONUS download can be large (multiple gigabytes depending on
+  year); _download() streams it to disk in 1 MB chunks and writes to a
+  ".part" temporary file first, renaming it to the final archive path
+  only after the download completes successfully.
+- By default (keep_source=False), the downloaded full-CONUS ZIP and the
+  extracted full-CONUS GeoTIFF are BOTH deleted immediately after the
+  clipped state-level output is saved, and the
+  data/raw/mrlc_source/ folder is removed as well. Pass
+  keep_source=True (or --keep-source on the CLI) to retain the full
+  national source files on disk.
+- If archive_path or source_tif_path already exist from a previous run, the 
+  download or extraction step for that file is skipped, even if force=True.
+- The ZIP is expected to contain exactly one .tif member; if zero or
+  more than one is found, this raises a flag.
+- Output raster CRS matches the source NLCD raster's native CRS (NLCD
+  is typically Albers Equal-Area projection); the state boundary polygon is 
+  reprojected to match the raster before clipping.
+- No API key or authentication is required for either the MRLC or
+  Census Bureau downloads.
+
+OUTPUT: data/raw/mrlc_land_cover_{STATE_ABBR}_{YEAR}.tif -- a single-band
+(or multi-band, matching the source) GeoTIFF cropped and clipped to the
+selected state's boundary, in the source raster's native CRS.
+
+SINGLE ENTRY POINT: extract_mrlc_land_cover() is the only function
+meant to be called from outside this module.
+
+USAGE:
+Interactive:
+    from mrlc_land_cover import extract_mrlc_land_cover
+    raster_path = extract_mrlc_land_cover()
+
+Headless CLI:
+    Default:
+        python src/mrlc_land_cover.py
+    Specify state:
+        python src/mrlc_land_cover.py --state-fips 25 --state-abbr MA --year 2024
+"""
 
 from __future__ import annotations
 
