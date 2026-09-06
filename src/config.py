@@ -63,10 +63,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SRC_DIR = PROJECT_ROOT / "src"
 DATA_DIR = PROJECT_ROOT / "data"
 RAW_DIR = PROJECT_ROOT / "data" / "raw"
-PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 
 # Create expected local directories when the configuration is imported.
-for directory in (RAW_DIR, PROCESSED_DIR):
+for directory in (RAW_DIR,):
     directory.mkdir(parents=True, exist_ok=True)
 
 # Default study area. Change these together when changing the headless default.
